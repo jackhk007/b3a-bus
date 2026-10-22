@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B3A · Fu Tai Estate → Shenzhen Bay Port</title>
+<style>
+:root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#183c32;background:#eef2eb;color-scheme:light}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}main{width:min(640px,100%)}.eyebrow{font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#617469}.route{display:flex;gap:20px;align-items:center;margin:24px 0 32px}.badge{background:#e2ef78;border:1px solid #c5d459;border-radius:18px;font-size:34px;font-weight:850;padding:19px 16px}h1{font-size:clamp(23px,5vw,32px);line-height:1.2;margin:6px 0}p{margin:6px 0;color:#617469}.board{background:#fff;border-radius:24px;padding:28px;box-shadow:0 12px 40px #1c40300a}.board-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}h2{font-size:15px;margin:0}.status{font-size:12px;color:#617469}.bus{display:flex;align-items:center;justify-content:space-between;padding:22px 0;border-top:1px solid #e8ece6}.bus:first-child{border-top:0}.bus strong{font-size:46px;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.05em}.bus:first-child strong{font-size:72px}.unit{margin-left:9px;font-size:15px;color:#617469}.detail{text-align:right;font-size:14px}.detail small{display:block;margin-top:5px;color:#617469;max-width:240px}.label{font-size:12px;color:#617469;margin-bottom:9px}.empty{padding:35px 0;line-height:1.5}.controls{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid #e8ece6;padding-top:20px;font-size:12px;color:#617469}button{border:1px solid #cfdbcd;border-radius:999px;background:white;color:#183c32;padding:10px 16px;font:inherit;font-weight:650;cursor:pointer}button:hover{background:#f0f5e8}button:disabled{opacity:.5;cursor:wait}button:focus-visible,a:focus-visible{outline:3px solid #789731;outline-offset:4px}footer{margin:22px 4px;font-size:12px;color:#617469;line-height:1.8}a{color:inherit}.error{color:#a04729}@media(max-width:420px){body{padding:16px}.board{padding:22px}.route{gap:14px}.badge{font-size:27px;padding:17px 12px}.bus:first-child strong{font-size:60px}}
+</style>
+</head>
+<body>
+<main>
+<div class="eyebrow">Next bus · Hong Kong</div>
+<header class="route"><div class="badge">B3A</div><div><p>From Fu Tai Estate 富泰邨</p><h1>To Shenzhen Bay Port</h1><p>深圳灣口岸</p></div></header>
+<section class="board" aria-label="Upcoming buses">
+<div class="board-head"><h2>Arriving at Fu Tai Estate</h2><span id="status" class="status" role="status">Connecting…</span></div>
+<div id="arrivals" aria-live="polite" aria-atomic="true"><p class="empty">Loading next buses…</p></div>
+<div class="controls"><span id="refresh">Refreshes every 30 seconds</span><button id="reload" type="button">Refresh now ↻</button></div>
+</section>
+<footer><div>Fu Tai Estate, Castle Peak Road · Stop 003261</div><div>Data: <a href="https://data.gov.hk/en-data/dataset/ctb-eta-transport-realtime-eta" target="_blank" rel="noopener">Citybus open data · DATA.GOV.HK</a></div><div id="updated">All times in Hong Kong time. Arrival estimates may change.</div></footer>
+</main>
+<script>
+'use strict';
+const ENDPOINT='https://rt.data.gov.hk/v2/transport/citybus/eta/CTB/003261/B3A';
+const INTERVAL=30000;
+const arrivals=document.getElementById('arrivals'),status=document.getElementById('status'),reload=document.getElementById('reload'),refreshLabel=document.getElementById('refresh');
+const timeFormat=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Hong_Kong',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+let nextRefresh=Date.now()+INTERVAL,busy=false;
+function element(tag,text,className){const node=document.createElement(tag);node.textContent=text;if(className)node.className=className;return node;}
+function render(rows){
+ const now=Date.now();
+ const buses=rows.filter(r=>Number.isFinite(Date.parse(r.eta))&&Date.parse(r.eta)>=now-30000).sort((a,b)=>Date.parse(a.eta)-Date.parse(b.eta));
+ const unique=buses.filter((r,i)=>buses.findIndex(b=>b.eta===r.eta)===i).slice(0,3);
+ arrivals.replaceChildren();
+ if(!unique.length){arrivals.append(element('p',rows.find(r=>r.rmk_en)?.rmk_en||'No upcoming arrivals available. Please check again shortly.','empty'));return;}
+ unique.forEach((bus,index)=>{
+  const row=element('div','','bus'),left=element('div',''),value=element('div','');
+  left.append(element('div',index===0?'NEXT BUS':`FOLLOWING · ${index+1}`,'label'));
+  value.append(element('strong',String(Math.max(0,Math.ceil((Date.parse(bus.eta)-now)/60000)))),element('span','min','unit'));
+  left.append(value);
+  const detail=element('div',timeFormat.format(new Date(bus.eta)).slice(0,5),'detail');
+  detail.append(element('small',bus.rmk_en||'Estimated arrival'));
+  row.append(left,detail);arrivals.append(row);
+ });
+}
+async function refresh(){
+ if(busy)return;busy=true;reload.disabled=true;status.textContent='Updating…';status.className='status';
+ const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);
+ try{
+  const response=await fetch(ENDPOINT,{signal:controller.signal,cache:'no-store'});
+  if(!response.ok)throw new Error(`HTTP ${response.status}`);
+  const payload=await response.json();
+  if(!Array.isArray(payload.data))throw new Error('Invalid response');
+  const rows=payload.data.filter(r=>r.route==='B3A'&&r.dir==='O'&&r.stop==='003261'&&Number(r.seq)===14);
+  const stamp=Date.parse(payload.generated_timestamp);
+  const timestamps=rows.map(r=>Date.parse(r.data_timestamp)).filter(Number.isFinite);
+  const sourceStamp=timestamps.length?Math.min(...timestamps):stamp;
+  if(!Number.isFinite(stamp)||Date.now()-stamp>180000||(Number.isFinite(sourceStamp)&&Date.now()-sourceStamp>180000))throw new Error('Stale data');
+  render(rows);status.textContent='● Live estimates';
+  document.getElementById('updated').textContent=`Updated ${timeFormat.format(new Date())} HKT · Estimates may change.`;
+ }catch(error){
+  status.textContent='Temporarily unavailable';status.className='status error';
+  arrivals.replaceChildren(element('p','Unable to load fresh arrivals. Check your connection or try again; automatic refresh will continue.','empty'));
+ }finally{clearTimeout(timeout);busy=false;reload.disabled=false;nextRefresh=Date.now()+INTERVAL;}
+}
+reload.addEventListener('click',refresh);
+setInterval(()=>{if(!busy&&Date.now()>=nextRefresh)refresh();refreshLabel.textContent=busy?'Fetching Citybus data…':`Refresh in ${Math.max(0,Math.ceil((nextRefresh-Date.now())/1000))}s · every 30s`;},1000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
+refresh();
+</script>
+</body>
+</html>
